@@ -3,6 +3,11 @@ If we can query tasks, why not automate a Gantt chart to show off the progress m
 Forked from this template:
 https://forum.obsidian.md/t/automatic-gantt-chart-from-obsidian-tasks-dataview/50512/10
 
+Required Plugins:
+- Tasks
+- Templater
+- Dataview
+
 Features:
 Almost the same "template" as above, but with some changes:
 - Dataview Syntax (properties with `[property:: value]` instead of emojis.) version of the script
