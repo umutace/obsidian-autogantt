@@ -2,17 +2,19 @@
 showDone: false
 ---
 ```dataviewjs
-function textParserDVFormat(task, noteCreationDate, parentEndDate) {
-    const properties = ["[start::", "[due::", "[scheduled::", "[created::", "[priority::", "[repeat::", "[completion::", "[cancelled::"]
+function textParserDVFormat(task) {
+    const properties = ["[start::", "[due::", "[scheduled::", "[created::", "[priority::", "[repeat::", "[completion::", "[cancelled::", "[onCompletion::"]
 
     let dueText = task.due;
     let scheduledText = task.scheduled;
     let startText = task.start;
     let addText = task.created;
+    // Dataview syntax uses "completion" instead of "done" date!
     let doneText = task.completion;
 
     let priorityText = task.priority;
 
+    // Get name without trailing properties
     const propertiesIndex = properties.map(property => task.text.indexOf(property)).filter(index => index >= 0);
     let words;
     if (propertiesIndex.length > 0) {
@@ -20,7 +22,6 @@ function textParserDVFormat(task, noteCreationDate, parentEndDate) {
     } else {
         words = task.text.split(" ");
     }
-
     // Remove the #task tag
     words = words.filter((word) => (word) !== "#task" && (word) !== "");
     // Put subsequent tags in []
@@ -29,6 +30,7 @@ function textParserDVFormat(task, noteCreationDate, parentEndDate) {
     // Join the words back together
     let nameText = newWords.join(" ");
 
+    // Dataview returns properties with Date automatically as epoch time!
     return {
         add: addText,
         done: doneText,
@@ -42,7 +44,7 @@ function textParserDVFormat(task, noteCreationDate, parentEndDate) {
 
 function loopGantt (pageArray, showDone){
     let queryGlobal = "";
-    let today = new Date().toISOString().slice(0, 10);
+    let today = new Date().valueOf();
 
 	// Loop through the pages looking for tasks
     let i;
@@ -55,35 +57,31 @@ function loopGantt (pageArray, showDone){
         queryGlobal += "section "+pageArray[i].file.name+"\n\n"
         let taskArray = pageArray[i].file.tasks;
         let taskObjs = [];
-        //let noteCreationDate = pageArray[i].created.includes(" ") ? pageArray[i].created.split(" ")[0] : pageArray[i].created;
-        let noteCreationDate = moment(pageArray[i].file.ctime).format('YYYY-MM-DD')
+        let noteCreationDate = new Date(pageArray[i].file.ctime);
         var parentEndDate = {};
         // Loop through the tasks
         let j;
         for (j = 0; j < taskArray.length; j+=1){
-            // taskObjs[j] = textParser(taskArray[j].text, noteCreationDate, parentEndDate[taskArray[j].parent]);
-            taskObjs[j] = textParserDVFormat(taskArray[j], noteCreationDate, parentEndDate[taskArray[j].parent]);
+            taskObjs[j] = textParserDVFormat(taskArray[j]);
             let theTask = taskObjs[j];
             if (theTask.name === "") continue; // Skip if task name is empty
             // Skip done tasks if showDone is false
             if (!showDone && theTask.done) continue;
             let startDate = theTask.start || theTask.scheduled || theTask.add || parentEndDate[taskArray[j].parent] || noteCreationDate || today;
             let endDate = theTask.done || theTask.due || theTask.scheduled;
-            // Dates transformed into ISODate format
-			// startDate = moment(startDate).format('YYYY-MM-DD')
-			// endDate = moment(endDate).format('YYYY-MM-DD')
             if (!endDate) {
                 if (startDate >= today) {  // If start date is in the future
                     let weekLater = new Date(startDate);
                     weekLater.setDate(weekLater.getDate() + 7);
-                    endDate = weekLater//.toISOString().slice(0, 10);
+                    endDate = weekLater
                 } else {  // If start date is in the past
                     endDate = today;
                 }
             }
             parentEndDate[taskArray[j].line]=endDate;
-            endDate = new Date(endDate).toISOString().slice(0,10);
-            startDate = new Date(startDate).toISOString().slice(0,10);
+            // Clean dates as strings
+            let endDateString = new Date(endDate).toISOString().slice(0,10);
+            let startDateString = new Date(startDate).toISOString().slice(0,10);
             if (theTask.done){
                 taskQuery += theTask.name + `    :done, ` + startDate + `, ` + endDate + `\n\n`;
             } else if (theTask.due){
@@ -109,35 +107,30 @@ function loopGantt (pageArray, showDone){
 
 const Mermaid = `gantt
         title <% await tp.system.prompt("Enter the name of this Gantt chart", "Tasks")%>
-        dateFormat  YYYY-MM-DD
+        dateFormat x
         axisFormat <% await tp.system.prompt("Enter the axis format", "%b %e")%>
         `;
-    let pages = dv.pages('<% await tp.system.prompt("Enter the scope (\"parent/folder\", #tag or [[page]])", true) %>');
-    let filteredPages = pages.map(page => {
-	    let tasks = page.file.tasks.filter(t => t.text.includes("#task"));
-        return {...page, file: {...page.file, tasks: tasks}};
-    });
-    //let filteredPages = pages;
-    let showDone = dv.current().showDone;
-    let ganttOutput = loopGantt(filteredPages, showDone);
-    //
+let pages = dv.pages('<% await tp.system.prompt("Enter the scope (\"parent/folder\", #tag or [[page]])", true) %>');
+// Assumes tasks with only #task tag are relevant for the Gantt chart.
+// Use `let filteredPages = pages;` instead if tag is not used.
+let filteredPages = pages.map(page => {
+    let tasks = page.file.tasks.filter(t => t.text.includes("#task"));
+    return {...page, file: {...page.file, tasks: tasks}};
+});
+let showDone = dv.current().showDone;
+let ganttOutput = loopGantt(filteredPages, showDone);
+//
 
-	//add dummy task so that today's date is always shown:
-    let today = new Date().toISOString().slice(0, 10);
-    ganttOutput += ". :active, " + today + ", " + today + "\n\n";
+//add dummy task so that today's date is always shown:
+let today = new Date().valueOf();
+ganttOutput += ". :active, " + today + ", " + today + "\n\n";
 
-    dv.paragraph("```mermaid\n" + Mermaid + ganttOutput + "\n```");
+dv.paragraph("```mermaid\n" + Mermaid + ganttOutput + "\n```");
 
-	if (dv.current().showDone) {
-		dv.paragraph(`Show completed tasks \`INPUT[toggle:showDone]\``);
-	} else {
-		dv.paragraph(`Show completed tasks \`INPUT[toggle:showDone]\``);
-	}
+// Generate a link to view the resulting chart
+dv.span("[View this chart in a browser](https://mermaid.ink/img/"+btoa(Mermaid+ganttOutput)+")")
 
-	// Generate a link to view the resulting chart
-	dv.span("[View this chart in a browser](https://mermaid.ink/img/"+btoa(Mermaid+ganttOutput)+")")
-
-    // Print the ganttOutput to inspect it
-    //dv.paragraph(ganttOutput);
-    //dv.paragraph("```\n" + Mermaid + ganttOutput + "\n```");
+// Print the ganttOutput to inspect it
+//dv.paragraph(ganttOutput);
+//dv.paragraph("```\n" + Mermaid + ganttOutput + "\n```");
 ```
